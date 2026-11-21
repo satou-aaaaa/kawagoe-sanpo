@@ -30,7 +30,7 @@ jobs:
         qa / qa
         scan / scan
       # PWA の仕組み・問題の作り方を変える PR は自動ではマージせず、CodeRabbit のレビューを読んでから手でマージ（AGENTS.md。shared-workflows incidents/2026-11-01-roppo-merged-before-review.md）
-      hold_paths: '^(sw\.js|manifest\.webmanifest|data\.js)$'
+      hold_paths: '^(sw\.js|manifest\.webmanifest|data/spots\.js)$'
       # 動いたときだけ成功を待つ検査。準備のファイルを変えた PR は Setup check が通るまでマージしない（2026-11-07 atsusa-shisu #1・#252 の CodeRabbit）
       present_checks: |
         setup / setup

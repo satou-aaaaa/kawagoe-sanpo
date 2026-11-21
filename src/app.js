@@ -120,15 +120,18 @@
   function timeHTML() {
     const s = byId(st.spot);
     const chips = SPOTS.map((x) => `<button type="button" class="chip" data-spot="${x.id}" aria-pressed="${x.id === st.spot}">${esc(nm(x))}</button>`).join("");
-    const bars = []; for (let h = H0; h <= H1; h++) {
+    // 棒グラフは目で見る人のため。同じ中身を読み上げ用の一覧にも書く（棒は aria-hidden）
+    const bars = [], hours = []; for (let h = H0; h <= H1; h++) {
       const open = isOpen(s, h), lv = level(s, h, st.hol);
+      hours.push(`<li>${esc(hourOf(h))}：${esc(open ? t("lv")[lv] : t("closed"))}</li>`);
       bars.push(`<div class="bar${h === st.hour ? " cur" : ""}" data-h="${h}"><span class="b lv${open ? lv : "x"}" style="height:${open ? 12 + lv * 22 : 4}px"></span><small>${h}</small></div>`);
     }
     const b = bestHour(s, st.hol);
     const yr = s.visitors ? `<p class="hint">${esc(fmt(t("year"), { n: s.visitors, N: (s.visitors * 10000).toLocaleString("en-US") }))}</p>` : "";
     return `${dayHour()}<h2>${esc(t("pick"))}</h2><div class="row">${chips}</div>
       <p class="big" id="best">${esc(fmt(t("best"), { p: nm(s), h: hourOf(b) }))}</p>${yr}
-      <div class="bars" role="img" aria-label="${esc(nm(s))}">${bars.join("")}</div>
+      <div class="bars" aria-hidden="true">${bars.join("")}</div>
+      <ul class="sr" id="bars-text" aria-label="${esc(nm(s))}">${hours.join("")}</ul>
       ${s.day ? `<p class="hint">${esc(t("dayOnly"))}</p>` : ""}`;
   }
 
@@ -141,8 +144,11 @@
     }).join("") + `<p class="hint">${esc(fmt(t("coreNow"), { t: t("lv")[level(byId("ichibangai"), st.hour, st.hol)] }))}（${esc(hourOf(st.hour))}・${esc(t(st.hol ? "holiday" : "weekday"))}）</p>`;
   }
 
+  // 見本の店の「いま空いてます」。画面は手元の値で描き、保存（localStorage）はできるときだけ（保存できない端末でもボタンが効くように）
   const DEFAULT_OPEN = { s1: "1", s2: "0", s3: "1" };
-  const shopOpen = (id) => (LS("ks-shop-" + id) || DEFAULT_OPEN[id]) === "1";
+  const shopState = {};
+  for (const s of SHOPS) shopState[s.id] = (LS("ks-shop-" + s.id) || DEFAULT_OPEN[s.id]) === "1";
+  const shopOpen = (id) => shopState[id];
   function shopHTML() {
     const items = SHOPS.map((s) => {
       const o = shopOpen(s.id);
@@ -166,6 +172,7 @@
       <li>国土地理院「住所検索」（場所の座標）</li></ul>`;
   }
 
+  let gpsGen = 0;
   const VIEWS = { now: nowHTML, time: timeHTML, course: courseHTML, shop: shopHTML, info: infoHTML };
   function render() {
     document.documentElement.lang = st.lang === "zh" ? "zh-Hans" : st.lang;
@@ -176,8 +183,18 @@
     const sel = $("#lang");
     if (!sel.options.length) sel.innerHTML = LANGS.map(([c, n]) => `<option value="${c}">${n}</option>`).join("");
     sel.value = st.lang;
-    for (const b of document.querySelectorAll("[role=tab]")) { b.textContent = t("tab" + b.dataset.tab[0].toUpperCase() + b.dataset.tab.slice(1)); b.setAttribute("aria-selected", String(b.dataset.tab === st.tab)); }
-    $("#view").innerHTML = VIEWS[st.tab]();
+    for (const b of document.querySelectorAll("[role=tab]")) { b.textContent = t("tab" + b.dataset.tab[0].toUpperCase() + b.dataset.tab.slice(1)); b.setAttribute("aria-selected", String(b.dataset.tab === st.tab)); b.setAttribute("aria-controls", "view"); }
+    const view = $("#view");
+    view.setAttribute("aria-labelledby", "tab-" + st.tab);
+    // 描き直すと押したボタンが消えるので、同じ役目のボタンに手元の位置（フォーカス）を戻す（キーボードで使う人のため）
+    const a = document.activeElement, keep = a && view.contains(a) && a !== view ? focusKey(a) : null;
+    view.innerHTML = VIEWS[st.tab]();
+    if (keep) { const n = view.querySelector(keep); if (n) n.focus(); }
+  }
+  function focusKey(el) {
+    if (el.id) return "#" + CSS.escape(el.id);
+    for (const k of ["hol", "from", "spot"]) if (el.dataset[k] !== undefined) return `[data-${k}="${CSS.escape(el.dataset[k])}"]`;
+    return null;
   }
 
   document.addEventListener("click", (e) => {
@@ -185,16 +202,19 @@
     if (!b) return;
     if (b.dataset.tab) { st.tab = b.dataset.tab; render(); $("#view").focus(); return; }
     if (b.dataset.hol !== undefined) { st.hol = b.dataset.hol === "1"; return render(); }
-    if (b.dataset.from) { st.from = STARTS.find((s) => s.id === b.dataset.from); st.gpsMsg = ""; return render(); }
+    if (b.dataset.from) { gpsGen++; st.from = STARTS.find((s) => s.id === b.dataset.from); st.gpsMsg = ""; return render(); }
     if (b.dataset.spot) { st.spot = b.dataset.spot; return render(); }
-    if (b.id === "owner") { LS("ks-shop-" + SHOPS[0].id, b.dataset.on === "1" ? "0" : "1"); return render(); }
+    if (b.id === "owner") { const id = SHOPS[0].id; shopState[id] = !shopState[id]; LS("ks-shop-" + id, shopState[id] ? "1" : "0"); return render(); }
     if (b.id === "gps") {
       if (!navigator.geolocation) { st.gpsMsg = t("gpsNg"); return render(); }
+      // 待っているあいだに駅を選び直したら、遅れて届いた現在地では上書きしない（いちばん新しい頼みの答えだけ使う）
+      const gen = ++gpsGen;
       navigator.geolocation.getCurrentPosition((p) => {
+        if (gen !== gpsGen) return;
         const here = { lat: p.coords.latitude, lon: p.coords.longitude, gps: true };
         if (geo(here, byId("ichibangai")).d > 15000) { st.gpsMsg = t("gpsFar"); return render(); }
         st.from = here; st.gpsMsg = t("gpsOk"); render();
-      }, () => { st.gpsMsg = t("gpsNg"); render(); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+      }, () => { if (gen !== gpsGen) return; st.gpsMsg = t("gpsNg"); render(); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
     }
   });
   document.addEventListener("change", (e) => {

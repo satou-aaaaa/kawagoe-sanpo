@@ -138,6 +138,10 @@ try {
   await page.click("#tab-time");
   check("何時が空く？：14本の棒（8〜21時）・いまの時間に印", (await page.locator(".bar").count()) === 14 && (await page.locator(".bar.cur").getAttribute("data-h")) === "13");
   check("何時が空く？：一番街は9時ごろが空いている目安・年の人出 約271万人", /9時/.test(await page.locator("#best").textContent()) && /271万/.test(await page.locator("main").innerText()));
+  check("何時が空く？：読み上げ用に、時間ごとの混み具合の一覧（14行）がある", (await page.locator("#bars-text li").count()) === 14 && /13時：とても混む/.test(await page.locator("#bars-text").textContent()));
+  await page.focus("[data-spot=hikawa]"); await page.keyboard.press("Enter");
+  check("キーボード：場所を選んでも、押したボタンに手元の位置（フォーカス）が残る", await page.evaluate(() => document.activeElement && document.activeElement.dataset.spot === "hikawa"));
+  check("タブ：中身の欄が選んだタブの名前を持つ（aria-labelledby・aria-controls）", (await page.locator("#view").getAttribute("aria-labelledby")) === "tab-time" && (await page.locator("#tab-time").getAttribute("aria-controls")) === "view");
   await page.click("[data-spot=honmaru]");
   check("何時が空く？：本丸御殿は日中だけと書く・17時からは棒が灰色", /日中だけ/.test(await page.locator("main").innerText()) && (await page.locator(".bar[data-h='18'] .b.lvx").count()) === 1);
 
@@ -157,6 +161,30 @@ try {
   const after = await page.locator("[data-shop=s1]").getAttribute("class");
   check("お店：お店のボタンで「いま空いてます」が消える・もう一度押すと出る", before === "open" && after === "" && (await page.click("#owner"), (await page.locator("[data-shop=s1]").getAttribute("class")) === "open"));
   check("お店：空いている店に特典の見本が出る", /特典/.test(await page.locator("[data-shop=s1]").innerText()));
+
+  {
+    // 保存（localStorage）が使えない端末でも、お店のボタンが効く
+    const nc = await browser.newContext({ viewport: { width: 360, height: 740 }, locale: "ja-JP" });
+    await nc.addInitScript(() => { Object.defineProperty(window, "localStorage", { get() { throw new Error("blocked"); } }); });
+    const np = await nc.newPage();
+    await np.goto(base); await np.waitForFunction(() => document.querySelector("#tab-now").textContent.length > 0);
+    await np.click("#tab-shop"); await np.click("#owner");
+    check("お店：保存が使えない端末でも、ボタンで「いま空いてます」が消える", (await np.locator("[data-shop=s1]").getAttribute("class")) === "");
+    await nc.close();
+  }
+  {
+    // 暗い画面：選んだボタンの文字が背景と見分けられる（4.5:1 以上）
+    const dc = await browser.newContext({ viewport: { width: 360, height: 740 }, locale: "ja-JP", colorScheme: "dark" });
+    const dp = await dc.newPage();
+    await dp.goto(base); await dp.waitForFunction(() => document.querySelector("#tab-now").textContent.length > 0);
+    const ratio = await dp.evaluate(() => {
+      const rgb = (c) => c.match(/\d+/g).slice(0, 3).map(Number);
+      const lum = (c) => { const [r, g, b] = rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      return [...document.querySelectorAll("[aria-selected=true], .chip[aria-pressed=true]")].map((el) => { const cs = getComputedStyle(el), a = lum(cs.color), b = lum(cs.backgroundColor); return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); });
+    });
+    check("暗い画面：選んだタブ・ボタンの文字のコントラストが 4.5:1 以上", ratio.length > 0 && ratio.every((r) => r >= 4.5), ratio.map((r) => r.toFixed(1)).join(" "));
+    await dc.close();
+  }
 
   // このアプリ：目安であること・出典
   await page.click("#tab-info");
