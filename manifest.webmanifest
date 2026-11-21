@@ -1,0 +1,15 @@
+{
+  "name": "川越さんぽ / Kawagoe Quiet Walk",
+  "short_name": "川越さんぽ",
+  "description": "混んでいる一番街を避けて、空いている川越へ。電波がなくても使えます。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fffaf3",
+  "theme_color": "#7a4a1e",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
