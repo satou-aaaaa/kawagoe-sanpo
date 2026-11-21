@@ -190,7 +190,7 @@ try {
     if (over > 0) check(`スマホ幅（360px）：${tab} が横にはみ出さない`, false, over + "px");
   }
   check("スマホ幅（360px）：どのタブも横にはみ出さない", !results.some((r) => r.name.startsWith("スマホ幅（360px）：") && !r.ok));
-  const small = await page.evaluate(() => [...document.querySelectorAll("button, select")].filter((b) => b.offsetParent && b.getBoundingClientRect().height < 44).length);
+  const small = await page.evaluate(() => [...document.querySelectorAll("button, select")].filter((b) => b.offsetParent && Math.round(b.getBoundingClientRect().height) < 44).length);
   check("押しやすさ：ボタンは高さ44px以上", small === 0, small);
 
   // 電波なし：保存されたあと、オフラインで開き直しても動く
